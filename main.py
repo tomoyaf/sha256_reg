@@ -3,8 +3,61 @@ from numpy.random import *
 import hashlib
 from bitstring import BitArray
 import matplotlib.pyplot as plt
+import os
+import re
+from file_utility.file_utility import *
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
 
 key = ["w1", "b1", "w2", "b2", "w3", "b3"]
+
+def save_params(path, d):
+    with open(path, 'wb') as f:
+        pickle.dump(d, f, pickle.HIGHEST_PROTOCOL)
+
+def load_params(path):
+    with open(path, 'rb') as f:
+        return pickle.load(f)
+
+def input_with_confirm(check_func = lambda x: True, before_msg = "", success_msg = "", failed_msg = ""):
+    i = input(before_msg)
+    if check_func(i):
+        print(success_msg)
+        return i
+    print(failed_msg)
+    return input_with_confirm(check_func, before_msg, success_msg, failed_msg)
+
+def load_params_with_confirm(params):
+    path = "./params"
+    if not os.path.exists(path):
+        os.makedirs(path)
+    params_files_name = [f for f in read_child_files_name(path) if is_file_extension(f, ".pkl")]
+
+    if params_files_name:
+        params_files = [[int(re.findall("\d+", i)[0]), i] for i in params_files_name]
+        params_files.sort()
+
+        epochs = [i[0] for i in params_files]
+
+        print("You can use the learned parameter file.")
+        s = input("Do you use it? (y/n) : ")
+        if s == "y" or s == "Y":
+            print("What epochs number do you want to start with?")
+            for i in params_files:
+                print("epoch ", i[0])
+
+            before_msg = "Please enter the number : "
+            success_msg = "The parameter file was loaded!"
+            failed_msg = "The number you entered is invalid.\nPlease enter the valid number."
+            epoch_input = int(input_with_confirm(lambda x: int(x) in epochs, before_msg, success_msg, failed_msg))
+
+            params_file_name = params_files[epochs.index(epoch_input)][1]
+            params = load_params(path + "/" + params_file_name)
+            return epoch_input + 1
+
+    return 0
 
 def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
@@ -64,7 +117,7 @@ class KernelNet:
         #out = BitArray("".join(map(str, z3)))
         #out = [int("".join(map(str, a[i:i+8])), 2) for i in range(0, len(a), 8)]
         #s = "".join(map(str, a))
-        #print(s)
+        #print(a)
         out = BitArray(a)
 
         return int.from_bytes(hashlib.sha256(out.bytes).digest()[0:17], "big")
@@ -101,8 +154,12 @@ x_train = np.array(x_train_p)
 
 network = KernelNet(layer_sizes = [640, 640, 640, 640])
 
-iters_num = 10
-#batch_size = 1
+start_epoch = load_params_with_confirm(network._params)
+
+print(network._params)
+
+num_epochs = 10
+batch_size = 1
 learning_rate = 0.1
 
 h = {}
@@ -112,16 +169,19 @@ for s in key:
     h[s] = 1e-8
     eta[s] = 0.001
 
-for itr in range(iters_num):
+for itr in range(num_epochs):
     #batch_mask = choice(train_size, batch_size)
     #x_batch = x_train[batch_mask]
     print("itr : ", itr)
     grad = network.numerical_gradient(x_train[itr])
-
+    print(grad)
     for s in key:
         h[s] += grad[s] * grad[s]
         eta[s] /= h[s] ** 0.5
         network._params[s] -= eta[s] * grad[s]
+    
+    save_params("./params/" + str(start_epoch + itr) + ".pkl", network._params)
+
 
 x = [i for i in range(10)]
 y = [network.output(i) for i in x]
